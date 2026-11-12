@@ -1,0 +1,658 @@
+--- a/main/src/motion_lib.cpp
++++ b/main/src/motion_lib.cpp
+@@ -3,7 +3,6 @@
+ #include "arc_pulse_power.h"
+ #include "arc_geometry.h"
+ #include "turn_s_curve.h"
+-#include "tank_control.h"
+ #include "turn_progress.h"
+ #include "servo_lib.h"
+ #include "pi_color_lib.h"
+@@ -2443,99 +2442,459 @@
+ 
+ 
+ // =====================================================
+-// tank: gyro heading PD with encoder synchronization.
+-// Both wheel commands respect the time/distance PWM envelope.
+-// Positive motorPower commands mean forward; dir handles reverse travel.
+-// =====================================================
+-void tank(float mm, int Maxpower, int Min_power, int brake) {
+-  const int maxPower = tank_control::magnitude(Maxpower);
+-  if (!isfinite(mm) || fabs(mm) < 0.1f || maxPower == 0) {
++// tank
++// 左右同期補正 + ジャイロ補正
++// エンコーダー左右読み取り逆テスト版
++// ジャイロ補正方向 修正版
++//
++// 通常:
++//   enc2 = 左
++//   enc1 = 右
++//
++// 今回:
++//   l = enc1
++//   r = enc2
++//
++// 制御:
++//   距離判定      : エンコーダー平均
++//   左右同期補正  : l - r
++//   姿勢補正      : ジャイロ yaw
++//
++// 前進:
++//   leftPower  = 負
++//   rightPower = 正
++//
++// 後退:
++//   leftPower  = 正
++//   rightPower = 負
++// =====================================================
++// =====================================================
++// tank
++// ジャイロ直進補正 + 左右エンコーダ同期補正
++//
++// 関数名・引数は変更しない
++//
++// mm > 0 : 前進
++// mm < 0 : 後退
++//
++// 前進時のモーター出力基準:
++//   左モーター = 負
++//   右モーター = 正
++//
++// 制御:
++//   1. 左右エンコーダ平均で距離を見る
++//   2. 台形制御で速度を作る
++//   3. 左右エンコーダ差で左右同期補正
++//   4. ジャイロ角度差で直進補正
++// =====================================================
++
++void tank(
++  float mm,
++  int Maxpower,
++  int Min_power,
++  int brake
++) {
++  // =====================================================
++  // 1. 引数確認
++  // =====================================================
++  if (fabs(mm) < 0.1f) {
+     stopMotors();
+     return;
+   }
+-  const int minPower = tank_control::minimum(Min_power, maxPower);
+-  const int wheelFloor = min(50, minPower / 2);
+-  const int dir = mm > 0.0f ? 1 : -1;
+-  const long targetPulse = mmToPulse(fabs(mm));
+-  if (targetPulse <= 0 || !tryRecoverGyroForNextMove()) {
++brake = constrain(
++    brake,
++    0,
++    1
++  );
++  if (Maxpower < 0) {
++    Maxpower = -Maxpower;
++  }
++
++  if (Min_power < 0) {
++    Min_power = -Min_power;
++  }
++
++  // brake:
++  //   0 = 逆相ブレーキなし
++  //   1 = 逆相ブレーキあり
++  brake = constrain(
++    brake,
++    0,
++    1
++  );
++
++  Min_power = constrain(
++    Min_power,
++    1,
++    255
++  );
++
++  int maxPower = constrain(
++    Maxpower,
++    Min_power,
++    255
++  );
++
++  // mmが正なら前進、負なら後退
++  int dir = (mm >= 0.0f) ? 1 : -1;
++
++  // 指定距離をエンコーダパルスへ変換
++  long targetPulse = mmToPulse(
++    fabs(mm)
++  );
++
++  if (targetPulse <= 0) {
+     stopMotors();
+     return;
+   }
+ 
+-  const float targetYaw = getYawDeg();
++  // =====================================================
++  // 2. MPU9265の確認・復旧
++  //
++  // 復旧できない場合は停止して終了する
++  // =====================================================
++  if (!tryRecoverGyroForNextMove()) {
++    stopMotors();
++
++    return;
++  }
++
++  bool useGyro = true;
++
++  // =====================================================
++  // 3. 補正後の片輪最低出力
++  //
++  // 基本速度はMin_power以上だが、
++  // 補正によって片輪だけ50まで下げられる。
++  // =====================================================
++  const int TANK_WHEEL_MIN_POWER = 50;
++
++  int wheelMinPower = constrain(
++    TANK_WHEEL_MIN_POWER,
++    0,
++    255
++  );
++
++  // =====================================================
++  // 4. 台形制御区間
++  // =====================================================
++  long accPulse = lround(
++    targetPulse * ACC_RATIO
++  );
++
++  long decPulse = lround(
++    targetPulse * DEC_RATIO
++  );
++
++  long cruisePulse =
++    targetPulse -
++    accPulse -
++    decPulse;
++
++  if (accPulse < 1) {
++    accPulse = 1;
++  }
++
++  if (decPulse < 1) {
++    decPulse = 1;
++  }
++
++  // 短距離で加速区間と減速区間が重なる場合
++  if (cruisePulse < 0) {
++    long totalRamp =
++      accPulse + decPulse;
++
++    if (totalRamp > 0) {
++      accPulse =
++        static_cast<long>(
++          static_cast<float>(targetPulse) *
++          (
++            static_cast<float>(accPulse) /
++            static_cast<float>(totalRamp)
++          )
++        );
++
++      decPulse =
++        targetPulse - accPulse;
++    }
++
++    if (accPulse < 1) {
++      accPulse = 1;
++    }
++
++    if (decPulse < 1) {
++      decPulse = 1;
++    }
++
++    cruisePulse = 0;
++  }
++
++  // =====================================================
++  // 5. 開始時の向きを直進基準にする
++  //
++  // yawを0へリセットせず、
++  // 現在向いている方向を維持する。
++  // =====================================================
++  float targetYaw = getYawDeg();
++
+   if (!g_gyroReady) {
+-    stopMotors();
+-    return;
+-  }
+-
++    useGyro = false;
++    targetYaw = 0.0f;
++    g_gyroZDps = 0.0f;
++  }
++
++  // =====================================================
++  // 6. 走行開始
++  // =====================================================
+   resetEncoder();
+-  const unsigned long startMs = millis();
+-  const unsigned long timeoutMs = 3000UL + static_cast<unsigned long>(fabs(mm) * 15.0f);
+-  bool applyBrake = false;
++
++  unsigned long startMs = millis();
++
++  // 距離に応じたタイムアウト
++  unsigned long timeoutMs =
++    3000UL +
++    static_cast<unsigned long>(
++      fabs(mm) * 15.0f
++    );
++
+   while (true) {
++
+     const unsigned long cycleUs = micros();
+     updateServoTasks();
+     updateGyroModeLed();
++
++    // ===================================================
++    // STOPボタン
++    // ===================================================
+     if (stopPressed()) {
+-      applyBrake = true;
++      brakeCurrentMotors();
++       break;
++    }
++
++    // ===================================================
++    // タイムアウト
++    // ===================================================
++    if (millis() - startMs >= timeoutMs) {
++     brakeCurrentMotors();
+       break;
+-    }
+-    if (millis() - startMs >= timeoutMs) {
+-      Serial.println("tank: timeout");
+-      applyBrake = true;
+-      break;
+-    }
+-
++    } 
++
++    // ===================================================
++    // 7. 左右エンコーダ取得
++    // ===================================================
+     long leftCount;
+     long rightCount;
++
+     noInterrupts();
++
+     leftCount = labs(enc2);
+     rightCount = labs(enc1);
++
+     interrupts();
+-    const long pos = (leftCount + rightCount) / 2;
++
++    // 左右平均で走行距離を判定
++    long pos =
++      (leftCount + rightCount) / 2;
++
+     if (pos >= targetPulse) {
+-      applyBrake = brake > 0;
+-      break;
+-    }
+-
+-    const float currentYaw = getYawDeg();
+-    if (!g_gyroReady) {
+-      // getYawDeg() already stops on read failure. Never reapply drive PWM.
+-      applyBrake = true;
+-      break;
+-    }
+-    const float elapsedSec = (millis() - startMs) * 0.001f;
+-    const int ceiling = static_cast<int>(tank_control::envelope(
+-        elapsedSec, static_cast<float>(targetPulse), static_cast<float>(pos),
+-        minPower, maxPower));
+-
+-    const float yawError = currentYaw - targetYaw;
+-    // Restore the pre-refactor balance after curved travel was reported in
+-    // both directions. The physical gyro polarity still needs hardware validation.
+-    const int sync = constrain(
+-        static_cast<int>((leftCount - rightCount) * SYNC_KP), -SYNC_MAX, SYNC_MAX);
+-    const int heading = constrain(
+-        static_cast<int>((GYRO_TANK_KP * yawError + GYRO_TANK_KD * g_gyroZDps) * dir),
+-        -GYRO_TANK_MAX_CORRECTION, GYRO_TANK_MAX_CORRECTION);
+-    const int correction = constrain(sync + heading,
+-        -GYRO_TANK_MAX_CORRECTION, GYRO_TANK_MAX_CORRECTION);
+-    const int startupCorrection = tank_control::startupCorrection(
+-        correction, dir, elapsedSec, ceiling, wheelFloor);
+-    const tank_control::Wheels wheels = tank_control::mix(ceiling, wheelFloor, startupCorrection);
+-    motorPower(wheels.left * dir, wheels.right * dir);
++      if (brake == 1) {
++      // 逆相ブレーキを実行
++      brakeCurrentMotors();
++      }
++
++  break;
++}
++
++    long remainPulse =
++      targetPulse - pos;
++
++    if (remainPulse < 0) {
++      remainPulse = 0;
++    }
++
++    // ===================================================
++    // 8. 台形速度制御
++    //
++    // basePowerの範囲:
++    //   Min_power ～ maxPower
++    // ===================================================
++    int basePower;
++
++    // 加速区間
++    if (pos < accPulse) {
++      float ratio =
++        pos /
++        static_cast<float>(accPulse);
++
++      ratio = smoothStep01(ratio);
++
++      basePower =
++        Min_power +
++        static_cast<int>(
++          (maxPower - Min_power) *
++          ratio
++        );
++
++    // 巡航区間
++    } else if (
++      pos < accPulse + cruisePulse
++    ) {
++      basePower = maxPower;
++
++    // 減速区間
++    } else {
++      float ratio =
++        remainPulse /
++        static_cast<float>(decPulse);
++
++      ratio = smoothStep01(ratio);
++
++      basePower =
++        Min_power +
++        static_cast<int>(
++          (maxPower - Min_power) *
++          ratio
++        );
++    }
++
++    basePower = constrain(
++      basePower,
++      Min_power,
++      maxPower
++    );
++
++    // ===================================================
++    // 9. 左右エンコーダ同期補正
++    //
++    // 左が多く進んだ場合:
++    //   左を弱める
++    //   右を強める
++    // ===================================================
++    long syncError =
++      leftCount - rightCount;
++
++    int syncCorrection =
++      static_cast<int>(
++        syncError * SYNC_KP
++      );
++
++    syncCorrection = constrain(
++      syncCorrection,
++      -SYNC_MAX,
++      SYNC_MAX
++    );
++
++    // ===================================================
++    // 10. MPU9265による直進補正
++    // ===================================================
++    int gyroCorrection = 0;
++
++    if (useGyro) {
++      float currentYaw = getYawDeg();
++
++      // 走行途中でジャイロが読めなくなった場合
++      if (!g_gyroReady) {
++        useGyro = false;
++        g_gyroZDps = 0.0f;
++        gyroCorrection = 0;
++
++      } else {
++        // MPU9265の積分角なので
++        // 0～360度の折り返し処理は不要
++        float yawError =
++          currentYaw - targetYaw;
++
++        float gyroPd =
++          GYRO_TANK_KP * yawError +
++          GYRO_TANK_KD * g_gyroZDps;
++
++        // 後退時は補正方向を反転
++        gyroCorrection =
++          static_cast<int>(
++            gyroPd * dir
++          );
++
++        gyroCorrection = constrain(
++          gyroCorrection,
++          -GYRO_TANK_MAX_CORRECTION,
++          GYRO_TANK_MAX_CORRECTION
++        );
++      }
++    }
++
++    // ===================================================
++    // 11. エンコーダ補正とジャイロ補正を合成
++    // ===================================================
++    int totalCorrection =
++      syncCorrection +
++      gyroCorrection;
++
++    totalCorrection = constrain(
++      totalCorrection,
++      -GYRO_TANK_MAX_CORRECTION,
++      GYRO_TANK_MAX_CORRECTION
++    );
++
++    int leftAbsPower =
++      basePower - totalCorrection;
++
++    int rightAbsPower =
++      basePower + totalCorrection;
++
++    // ===================================================
++    // 12. 補正後の出力制限
++    //
++    // 上限はmaxPowerではなく255
++    // ===================================================
++    leftAbsPower = constrain(
++      leftAbsPower,
++      wheelMinPower,
++      255
++    );
++
++    rightAbsPower = constrain(
++      rightAbsPower,
++      wheelMinPower,
++      255
++    );
++
++    // ===================================================
++    // 13. モーター方向
++    //
++    // 前進:
++    //   左 = 負
++    //   右 = 正
++    //
++    // 後退:
++    //   左 = 正
++    //   右 = 負
++    // ===================================================
++    int leftPower =
++      leftAbsPower * dir;
++
++    int rightPower =
++      rightAbsPower * dir;
++
++    leftPower = constrain(
++      leftPower,
++      -255,
++      255
++    );
++
++    rightPower = constrain(
++      rightPower,
++      -255,
++      255
++    );
++
++    motorPower(
++      leftPower,
++      rightPower
++    );
++
+     finishMotionControlCycle(cycleUs);
+   }
+ 
+-  if (applyBrake) {
+-    // Passive short braking cannot turn into an unintended reverse drive.
+-    // Keep servo tasks alive during the bounded settling interval.
+-    shortBrakeMotors();
+-    const unsigned long brakeStart = millis();
+-    while (millis() - brakeStart < 60UL) {
+-      updateServoTasks();
+-      delay(1);
+-    }
+-  }
+   stopMotors();
+   delay(20);
+ }
+--- a/main/include/motion_lib.h
++++ b/main/include/motion_lib.h
+@@ -227,8 +227,6 @@
+ // 旧 gyrotank
+ // =====================================================
+ 
+-// maxPower bounds both wheels; Min_power is capped to maxPower.
+-// brake: 0 = stop output only, 1 = bounded short brake (no reverse drive).
+ void tank(
+   float mm,
+   int maxPower = 200,
+--- a/main/include/tank_control.h
++++ /dev/null
+@@ -1,45 +0,0 @@
+-#pragma once
+-
+-#include "turn_s_curve.h"
+-
+-// Pure PWM planning helpers, independent of Arduino and control-loop frequency.
+-namespace tank_control {
+-constexpr int magnitude(int value) {
+-  return value >= 255 || value <= -255 ? 255 : value < 0 ? -value : value;
+-}
+-
+-constexpr int minimum(int requested, int maximum) {
+-  const int value = magnitude(requested);
+-  return value > maximum ? maximum : value;
+-}
+-
+-constexpr float envelope(float elapsedSec, float target, float progress,
+-                         int minimumPower, int maximumPower) {
+-  return turn_s_curve::power(elapsedSec, target, progress,
+-                            minimumPower, maximumPower, 0.30f, 600.0f);
+-}
+-
+-struct Wheels { int left; int right; };
+-
+-// Fade in attainable steering during reverse startup. Clamp BEFORE scaling so
+-// a large encoder error cannot saturate the mixer and bypass the startup ramp.
+-// This shapes correction amplitude, not the rate of a changing sensor signal.
+-constexpr int startupCorrection(int correction, int direction, float elapsedSec,
+-                                int ceiling, int floor) {
+-  if (direction >= 0) return correction;
+-  const int limit = (ceiling - floor) / 2;
+-  const int bounded = correction < -limit ? -limit : correction > limit ? limit : correction;
+-  if (elapsedSec >= 0.250f) return bounded;
+-  return static_cast<int>(bounded * turn_s_curve::smooth(elapsedSec / 0.250f));
+-}
+-
+-// The profile is a ceiling for BOTH wheels. Make room for steering by lowering
+-// common power, so correction never accelerates a wheel beyond the envelope.
+-constexpr Wheels mix(int ceiling, int floor, int correction) {
+-  const int limit = (ceiling - floor) / 2;
+-  const int steer = correction < -limit ? -limit : correction > limit ? limit : correction;
+-  const int magnitude = steer < 0 ? -steer : steer;
+-  const int common = ceiling - magnitude;
+-  return {common - steer, common + steer};
+-}
+-}
+--- a/main/test/test_tank_control.cpp
++++ /dev/null
+@@ -1,58 +0,0 @@
+-#include "tank_control.h"
+-#include <limits.h>
+-
+-using namespace tank_control;
+-
+-static_assert(magnitude(10) == 10 && minimum(100, 10) == 10,
+-              "Low requested maxima must not become PWM 100");
+-static_assert(magnitude(0) == 0 && minimum(100, 0) == 0,
+-              "Zero maximum must remain stopped");
+-static_assert(magnitude(INT_MIN) == 255 && magnitude(INT_MAX) == 255,
+-              "Signed magnitude normalization must not overflow");
+-
+-constexpr bool boundedSteering() {
+-  for (int ceiling = 0; ceiling <= 255; ++ceiling) {
+-    const int floor = ceiling < 100 ? ceiling / 2 : 50;
+-    for (int correction = -150; correction <= 150; correction += 5) {
+-      const Wheels wheels = mix(ceiling, floor, correction);
+-      const Wheels mirror = mix(ceiling, floor, -correction);
+-      if (wheels.left < floor || wheels.right < floor ||
+-          wheels.left > ceiling || wheels.right > ceiling) return false;
+-      if (wheels.left + wheels.right > 2 * ceiling) return false;
+-      if (wheels.left != mirror.right || wheels.right != mirror.left) return false;
+-      if (correction > 0 && wheels.left > wheels.right) return false;
+-    }
+-  }
+-  return true;
+-}
+-static_assert(boundedSteering(), "Steering must stay bounded and symmetric for reverse travel");
+-static_assert(envelope(0, 100, 0, 100, 255) == 100, "Start at minimum power");
+-static_assert(envelope(0.1f, 10, 0, 100, 255) < 130,
+-              "Short elapsed time must not jump to maximum PWM");
+-static_assert(envelope(0.2f, 10, 9.9f, 100, 255) < 101,
+-              "Deceleration must win even while acceleration is active");
+-static_assert(envelope(1, 10, 10, 100, 255) == 100, "End at minimum power");
+-static_assert(envelope(1, 100, 50, 10, 10) == 10, "Low cap must survive profile planning");
+-
+-constexpr bool reverseStartup() {
+-  for (int correction = -150; correction <= 150; ++correction) {
+-    if (startupCorrection(correction, -1, 0, 100, 50) != 0) return false;
+-    const Wheels original = mix(100, 50, correction);
+-    const Wheels settled = mix(100, 50, startupCorrection(correction, -1, 0.250f, 100, 50));
+-    if (original.left != settled.left || original.right != settled.right) return false;
+-    int previous = 0;
+-    for (int ms = 0; ms <= 250; ++ms) {
+-      const float sec = ms * 0.001f;
+-      if (startupCorrection(correction, 1, sec, 100, 50) != correction) return false;
+-      const int actual = startupCorrection(correction, -1, sec, 100, 50);
+-      if (actual != -startupCorrection(-correction, -1, sec, 100, 50)) return false;
+-      const int absolute = actual < 0 ? -actual : actual;
+-      if (absolute < previous || absolute > 25) return false;
+-      previous = absolute;
+-    }
+-  }
+-  return true;
+-}
+-static_assert(reverseStartup(), "Reverse fade must be symmetric and preserve forward and settled steering");
+-static_assert(startupCorrection(150, -1, 0.125f, 100, 50) == 12,
+-              "Even saturated error must use only half of attainable steering at 125ms");

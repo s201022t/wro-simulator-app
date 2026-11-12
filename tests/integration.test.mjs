@@ -1,0 +1,10 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {spawnSync} from 'node:child_process';
+const exe=process.platform==='win32'?'build/wro-sim-engine.exe':'build/wro-sim-engine';
+function run(program){const r=spawnSync(exe,['--program',program,'--quiet'],{encoding:'utf8',maxBuffer:20_000_000});assert.equal(r.status,0,r.stderr);return r.stdout.trim().split('\n').map(x=>JSON.parse(x));}
+test('元のtank/spinを使うデモが状態を生成して完了する',()=>{const rows=run('demo'),states=rows.filter(x=>x.type==='state');assert.ok(states.length>30);assert.equal(rows.at(-1).type,'complete');assert.ok(Math.hypot(states.at(-1).x-240,states.at(-1).y-900)>400);assert.ok(Math.abs(states.at(-1).heading+90)>70);assert.ok(states.some(x=>Math.abs(x.yawRate)>100));});
+test('後進500mmでエンコーダ駆動の物理位置が変化する',()=>{const s=run('reverse').filter(x=>x.type==='state');assert.ok(s.length>10);assert.ok(Math.hypot(s.at(-1).x-240,s.at(-1).y-900)>400);assert.ok(s.some(x=>x.pwmLeft<0&&x.pwmRight<0));});
+test('A/B相割り込みにより左右エンコーダが増える',()=>{const s=run('demo').filter(x=>x.type==='state');assert.ok(s.some(x=>Math.abs(x.encoder[0])>500));assert.ok(s.some(x=>Math.abs(x.encoder[1])>500));assert.ok(s.some(x=>x.encoder[0]!==x.encoder[1]));});
+test('元のtlineが仮想ラインを検出して停止する',()=>{const s=run('line').filter(x=>x.type==='state');assert.ok(s.length>10);assert.ok(s.at(-1).time<15);assert.ok(s.some(x=>x.line.some(v=>v>900)));});
+test('元のservo_lib S字タスクが4サーボを動かす',()=>{const s=run('servo').filter(x=>x.type==='state');assert.ok(s.length>10);assert.notDeepEqual(s.at(-1).servo,[1500,1500,1500,1500]);assert.ok(new Set(s.map(x=>x.servo.join(','))).size>4);});
+test('元のpi_color_libが仮想UART ROI応答を完走する',()=>{const rows=run('color');assert.equal(rows.at(-1).type,'complete');assert.equal(rows.at(-1).program,'color');});
+test('左旋回では姿勢とジャイロ角速度の符号が一致する',()=>{const s=run('spin-left').filter(x=>x.type==='state');assert.ok(s.some(x=>Math.abs(x.yawRate)>100));const moving=s.find(x=>Math.abs(x.yawRate)>100);assert.equal(Math.sign(moving.yawRate),Math.sign(s.at(-1).heading+90));});

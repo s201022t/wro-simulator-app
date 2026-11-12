@@ -1,0 +1,5 @@
+PySide6
+pyserial
+Pillow
+numpy
+PyInstaller

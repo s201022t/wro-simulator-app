@@ -1,0 +1,147 @@
+# 未使用関数調査（2026-09-06）
+
+対象: `main/src/*.cpp`。NiclaRoiAppのPythonスクリプトは対象外。コメント・文字列・宣言を除外した静的参照調査。Arduinoのsetup/loopと割り込みハンドラ等の関数参照を考慮。同名オーバーロードは関数名単位でまとめて使用扱いにするため、未使用オーバーロードは含まれない場合がある。プリプロセッサ分岐は区別しない。
+
+削除済み: `tankMM`, `spinDeg`, `pivotDeg`。モザイク配置のtankMM呼び出し2か所はtankへ変更。3関数へのジャイロ異常時フォールバックは停止・returnへ変更（競技シーケンス全体の中断ではない）。その他の関数は削除していない。
+
+## 他の関数・初期化コードから参照がない関数
+
+| 関数 | 定義 |
+| --- | --- |
+| `extra_1` | [extra.cpp:11](src/extra.cpp#L11) |
+| `extra_2` | [extra.cpp:288](src/extra.cpp#L288) |
+| `extra_3` | [extra.cpp:292](src/extra.cpp#L292) |
+| `extra_4` | [extra.cpp:296](src/extra.cpp#L296) |
+| `extra_5` | [extra.cpp:300](src/extra.cpp#L300) |
+| `extra_6` | [extra.cpp:306](src/extra.cpp#L306) |
+| `extra_7` | [extra.cpp:311](src/extra.cpp#L311) |
+| `extra_8` | [extra.cpp:317](src/extra.cpp#L317) |
+| `extra_9` | [extra.cpp:323](src/extra.cpp#L323) |
+| `extra_10` | [extra.cpp:328](src/extra.cpp#L328) |
+| `buzzerBeepCount` | [motion_lib.cpp:57](src/motion_lib.cpp#L57) |
+| `setMotor` | [motion_lib.cpp:752](src/motion_lib.cpp#L752) |
+| `shortBrakeCurrentMotors` | [motion_lib.cpp:785](src/motion_lib.cpp#L785) |
+| `tlineL` | [motion_lib.cpp:1439](src/motion_lib.cpp#L1439) |
+| `ex_tline` | [motion_lib.cpp:1516](src/motion_lib.cpp#L1516) |
+| `brakeMotors` | [motion_lib.cpp:1799](src/motion_lib.cpp#L1799) |
+| `brakeSpinMotors` | [motion_lib.cpp:1807](src/motion_lib.cpp#L1807) |
+| `calcTurnTrapezoidPower` | [motion_lib.cpp:2347](src/motion_lib.cpp#L2347) |
+| `calcPivotTrapezoidPower` | [motion_lib.cpp:2377](src/motion_lib.cpp#L2377) |
+| `gyroReady` | [motion_lib.cpp:4391](src/motion_lib.cpp#L4391) |
+| `test_encoder` | [motion_lib.cpp:5207](src/motion_lib.cpp#L5207) |
+| `checkline` | [motion_lib.cpp:5407](src/motion_lib.cpp#L5407) |
+| `arc` | [motion_lib.cpp:5463](src/motion_lib.cpp#L5463) |
+| `motorBrakeTest` | [motion_lib.cpp:6252](src/motion_lib.cpp#L6252) |
+| `pivotcheck` | [move_function.cpp:286](src/move_function.cpp#L286) |
+| `spincheck` | [move_function.cpp:296](src/move_function.cpp#L296) |
+| `test_function` | [move_function.cpp:307](src/move_function.cpp#L307) |
+| `section_A` | [move_function.cpp:573](src/move_function.cpp#L573) |
+| `section_B` | [move_function.cpp:596](src/move_function.cpp#L596) |
+| `section_C` | [move_function.cpp:691](src/move_function.cpp#L691) |
+| `motikae` | [move_function.cpp:1004](src/move_function.cpp#L1004) |
+| `leadoff` | [move_function.cpp:1026](src/move_function.cpp#L1026) |
+| `avoidGo` | [move_function.cpp:1039](src/move_function.cpp#L1039) |
+| `go_white` | [move_function.cpp:1057](src/move_function.cpp#L1057) |
+| `swapOnField` | [move_function.cpp:1070](src/move_function.cpp#L1070) |
+| `swapGrabbed` | [move_function.cpp:1091](src/move_function.cpp#L1091) |
+| `cement` | [move_function.cpp:1118](src/move_function.cpp#L1118) |
+| `oneput` | [move_function.cpp:1126](src/move_function.cpp#L1126) |
+| `on_barrier` | [move_function.cpp:1146](src/move_function.cpp#L1146) |
+| `color_EX` | [move_function.cpp:1156](src/move_function.cpp#L1156) |
+| `color_EX_if` | [move_function.cpp:1179](src/move_function.cpp#L1179) |
+| `frame_mosaic_catch` | [move_function.cpp:1186](src/move_function.cpp#L1186) |
+| `parseSetRoiColorLine` | [pi_color_lib.cpp:988](src/pi_color_lib.cpp#L988) |
+| `parseSetRoiRgbLine` | [pi_color_lib.cpp:1021](src/pi_color_lib.cpp#L1021) |
+| `checkGroupColors` | [pi_color_lib.cpp:1119](src/pi_color_lib.cpp#L1119) |
+| `printColorSetStatus` | [pi_color_lib.cpp:1182](src/pi_color_lib.cpp#L1182) |
+| `readRoi` | [pi_color_lib.cpp:1264](src/pi_color_lib.cpp#L1264) |
+| `setManualGroupColors` | [pi_color_lib.cpp:1641](src/pi_color_lib.cpp#L1641) |
+| `getGroupColor` | [pi_color_lib.cpp:1754](src/pi_color_lib.cpp#L1754) |
+| `getRoiCount` | [pi_color_lib.cpp:1829](src/pi_color_lib.cpp#L1829) |
+| `getColorSetName` | [pi_color_lib.cpp:1837](src/pi_color_lib.cpp#L1837) |
+| `writeBothServos` | [servo_lib.cpp:296](src/servo_lib.cpp#L296) |
+
+## 参照はあるが現在のsetup/loopから到達しない関数
+
+現在のrunCurrentProgramはspinの2呼び出しのみ。以下には今後使う競技動作や、それらの補助関数も含まれるため、削除候補とは分けて扱う。
+
+| 関数 | 定義 |
+| --- | --- |
+| `boardRgbSetByColor` | [motion_lib.cpp:106](src/motion_lib.cpp#L106) |
+| `wheelCircumference` | [motion_lib.cpp:654](src/motion_lib.cpp#L654) |
+| `mmToPulse` | [motion_lib.cpp:658](src/motion_lib.cpp#L658) |
+| `pulseToMm` | [motion_lib.cpp:662](src/motion_lib.cpp#L662) |
+| `getTotalEncL` | [motion_lib.cpp:691](src/motion_lib.cpp#L691) |
+| `getTotalEncR` | [motion_lib.cpp:698](src/motion_lib.cpp#L698) |
+| `getAvgPulse` | [motion_lib.cpp:705](src/motion_lib.cpp#L705) |
+| `getAvgMm` | [motion_lib.cpp:709](src/motion_lib.cpp#L709) |
+| `resetPID` | [motion_lib.cpp:713](src/motion_lib.cpp#L713) |
+| `line` | [motion_lib.cpp:793](src/motion_lib.cpp#L793) |
+| `edgeLine` | [motion_lib.cpp:880](src/motion_lib.cpp#L880) |
+| `tlineInternal` | [motion_lib.cpp:1166](src/motion_lib.cpp#L1166) |
+| `tline` | [motion_lib.cpp:1421](src/motion_lib.cpp#L1421) |
+| `tlineR` | [motion_lib.cpp:1457](src/motion_lib.cpp#L1457) |
+| `calcTrapezoidSpeed` | [motion_lib.cpp:2170](src/motion_lib.cpp#L2170) |
+| `lineControlStep` | [motion_lib.cpp:2212](src/motion_lib.cpp#L2212) |
+| `tank` | [motion_lib.cpp:2452](src/motion_lib.cpp#L2452) |
+| `tankb` | [motion_lib.cpp:2860](src/motion_lib.cpp#L2860) |
+| `pivotDegToPulse` | [motion_lib.cpp:3472](src/motion_lib.cpp#L3472) |
+| `pivot` | [motion_lib.cpp:4847](src/motion_lib.cpp#L4847) |
+| `kabe` | [motion_lib.cpp:5256](src/motion_lib.cpp#L5256) |
+| `resetMosaicRemaining` | [move_function.cpp:26](src/move_function.cpp#L26) |
+| `getMosaicRemaining` | [move_function.cpp:42](src/move_function.cpp#L42) |
+| `consumeMosaic` | [move_function.cpp:77](src/move_function.cpp#L77) |
+| `getMosaicDepth` | [move_function.cpp:167](src/move_function.cpp#L167) |
+| `moveBetweenMosaicColors` | [move_function.cpp:215](src/move_function.cpp#L215) |
+| `bowl` | [move_function.cpp:310](src/move_function.cpp#L310) |
+| `put_mosaic_both` | [move_function.cpp:388](src/move_function.cpp#L388) |
+| `move_mosaic2_3` | [move_function.cpp:431](src/move_function.cpp#L431) |
+| `move_mosaic1` | [move_function.cpp:788](src/move_function.cpp#L788) |
+| `robot_start` | [move_function.cpp:949](src/move_function.cpp#L949) |
+| `catch_block` | [move_function.cpp:965](src/move_function.cpp#L965) |
+| `normalizeColor` | [pi_color_lib.cpp:151](src/pi_color_lib.cpp#L151) |
+| `makeGroupCandidates` | [pi_color_lib.cpp:230](src/pi_color_lib.cpp#L230) |
+| `groupNeedsColorFallback` | [pi_color_lib.cpp:254](src/pi_color_lib.cpp#L254) |
+| `buildGroupMatchScoreTable` | [pi_color_lib.cpp:296](src/pi_color_lib.cpp#L296) |
+| `getGroupMatchScore` | [pi_color_lib.cpp:336](src/pi_color_lib.cpp#L336) |
+| `searchGroupColors` | [pi_color_lib.cpp:360](src/pi_color_lib.cpp#L360) |
+| `updateColorRemaining` | [pi_color_lib.cpp:689](src/pi_color_lib.cpp#L689) |
+| `colorIdToString` | [pi_color_lib.cpp:708](src/pi_color_lib.cpp#L708) |
+| `splitCsv` | [pi_color_lib.cpp:717](src/pi_color_lib.cpp#L717) |
+| `blinkColorReadErrorLed` | [pi_color_lib.cpp:741](src/pi_color_lib.cpp#L741) |
+| `clearPiSerialBuffer` | [pi_color_lib.cpp:800](src/pi_color_lib.cpp#L800) |
+| `readLineFromPi` | [pi_color_lib.cpp:809](src/pi_color_lib.cpp#L809) |
+| `parseRoiColorLine` | [pi_color_lib.cpp:856](src/pi_color_lib.cpp#L856) |
+| `parseGroupColorLine` | [pi_color_lib.cpp:899](src/pi_color_lib.cpp#L899) |
+| `parseRoiRgbLine` | [pi_color_lib.cpp:942](src/pi_color_lib.cpp#L942) |
+| `printAllRoiColors` | [pi_color_lib.cpp:1058](src/pi_color_lib.cpp#L1058) |
+| `printAllRoiRgb` | [pi_color_lib.cpp:1069](src/pi_color_lib.cpp#L1069) |
+| `printAllGroupColors` | [pi_color_lib.cpp:1084](src/pi_color_lib.cpp#L1084) |
+| `printAllRoiColors` | [pi_color_lib.cpp:1132](src/pi_color_lib.cpp#L1132) |
+| `printAllRoiRgb` | [pi_color_lib.cpp:1155](src/pi_color_lib.cpp#L1155) |
+| `sendSimpleCommandToPi` | [pi_color_lib.cpp:1199](src/pi_color_lib.cpp#L1199) |
+| `requestPiSnap` | [pi_color_lib.cpp:1231](src/pi_color_lib.cpp#L1231) |
+| `requestPiSnap` | [pi_color_lib.cpp:1235](src/pi_color_lib.cpp#L1235) |
+| `requestPiPicker` | [pi_color_lib.cpp:1249](src/pi_color_lib.cpp#L1249) |
+| `requestPiPicker` | [pi_color_lib.cpp:1253](src/pi_color_lib.cpp#L1253) |
+| `requestColorRead` | [pi_color_lib.cpp:1337](src/pi_color_lib.cpp#L1337) |
+| `requestColorRead` | [pi_color_lib.cpp:1504](src/pi_color_lib.cpp#L1504) |
+| `setting_variable` | [pi_color_lib.cpp:1529](src/pi_color_lib.cpp#L1529) |
+| `readColorAndSetVariable` | [pi_color_lib.cpp:1683](src/pi_color_lib.cpp#L1683) |
+| `getRoiColor` | [pi_color_lib.cpp:1722](src/pi_color_lib.cpp#L1722) |
+| `getRoiR` | [pi_color_lib.cpp:1730](src/pi_color_lib.cpp#L1730) |
+| `getRoiG` | [pi_color_lib.cpp:1738](src/pi_color_lib.cpp#L1738) |
+| `getRoiB` | [pi_color_lib.cpp:1746](src/pi_color_lib.cpp#L1746) |
+| `getRoiColor` | [pi_color_lib.cpp:1765](src/pi_color_lib.cpp#L1765) |
+| `getRoiR` | [pi_color_lib.cpp:1781](src/pi_color_lib.cpp#L1781) |
+| `getRoiG` | [pi_color_lib.cpp:1797](src/pi_color_lib.cpp#L1797) |
+| `getRoiB` | [pi_color_lib.cpp:1813](src/pi_color_lib.cpp#L1813) |
+| `hasValidColorRead` | [pi_color_lib.cpp:1848](src/pi_color_lib.cpp#L1848) |
+| `hasValidColorRead` | [pi_color_lib.cpp:1852](src/pi_color_lib.cpp#L1852) |
+| `servoTasksBusy` | [servo_lib.cpp:336](src/servo_lib.cpp#L336) |
+| `waitServoTasks` | [servo_lib.cpp:343](src/servo_lib.cpp#L343) |
+| `catchArm` | [servo_lib.cpp:407](src/servo_lib.cpp#L407) |
+| `liftArm` | [servo_lib.cpp:450](src/servo_lib.cpp#L450) |
+| `backArm` | [servo_lib.cpp:500](src/servo_lib.cpp#L500) |
+| `circleArm` | [servo_lib.cpp:535](src/servo_lib.cpp#L535) |
+| `front` | [servo_lib.cpp:565](src/servo_lib.cpp#L565) |

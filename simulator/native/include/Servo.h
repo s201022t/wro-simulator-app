@@ -1,0 +1,2 @@
+#pragma once
+class Servo { int pin_=-1,pulse_=1500; public: int attach(int p){pin_=p;return 1;} int attach(int p,int,int,int initial){pin_=p;pulse_=initial;return 1;} void detach(){pin_=-1;} bool attached()const{return pin_>=0;} void write(int angle){pulse_=500+(angle+180)*2000/360;} void writeMicroseconds(int us){pulse_=us;} int read()const{return (pulse_-500)*360/2000-180;} int readMicroseconds()const{return pulse_;} };

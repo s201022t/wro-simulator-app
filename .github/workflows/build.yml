@@ -1,0 +1,23 @@
+name: build
+on: [push, pull_request]
+jobs:
+  native:
+    strategy:
+      matrix: {os: [ubuntu-latest, windows-latest]}
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 22}
+      - run: cmake -S . -B build
+      - run: cmake --build build --config Release
+      - run: ctest --test-dir build -C Release --output-on-failure
+      - if: matrix.os == 'windows-latest'
+        run: npm install
+      - if: matrix.os == 'windows-latest'
+        run: npm run dist:win
+      - if: matrix.os == 'windows-latest'
+        uses: actions/upload-artifact@v4
+        with:
+          name: WRO-2026-Senior-Simulator-Windows-x64
+          path: dist/*.exe
